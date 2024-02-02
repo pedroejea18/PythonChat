@@ -5,3 +5,5 @@ you connected the client2 at the same time you could ban this client2, so in the
 
 To run it correctly you have to open first the server.py then open a client (You can open as many client as you wish, I just created 2 files of client just to try), once you put a name to the client and type the token you should be able to chat and see the chat history 
 on the server, you can open the clients you want, the program should be capable of chat with each other.
+
+I also created a funcionality that saves the client info in a txt file, in this file you will see the ip of the client, his name and his token. So when you want to ban a user you just go to that txt file copy the token and paste on the console, once its banned the user info should dissapear from the txt.
