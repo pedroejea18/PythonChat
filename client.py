@@ -2,50 +2,66 @@ import socket
 import os
 import threading
 
-conexion_adress = '192.168.1.135' #insert your ipv4 address
-conexionPort = 9000
+Server_Address = '192.168.1.135'
+Server_Port = 9000
 
-client_Socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+Client_Socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-def getToken():
-    name = input("Your name: ")
-    client_Socket.sendto(name.encode('utf-8'), (conexion_adress, conexionPort))    
-    answer, _ = client_Socket.recvfrom(1024)
-    token = answer.decode('utf-8')
-    print(f"Your token is: {token}")
-    return token
+def get_token():
+    name = input("Enter your name: ")
+    Client_Socket.sendto(name.encode('utf-8'), (Server_Address, Server_Port))
+    
+    response, _ = Client_Socket.recvfrom(1024)
+    if response.decode('utf-8') == "ADMIN_PASSWORD":
+        # If the name is "admin", request the admin's password
+        admin_password = input("Enter the admin password: ")
+        Client_Socket.sendto(admin_password.encode('utf-8'), (Server_Address, Server_Port))
+        admin_response, _ = Client_Socket.recvfrom(1024)
+        if admin_response.decode('utf-8') == "PASSWORD CORRECT":
+            print("Admin password correct. You are now an administrator.")
+            # Receive the admin's token after successful authentication
+            admin_token, _ = Client_Socket.recvfrom(1024)
+            return admin_token.decode('utf-8')
+        else:
+            print("Incorrect admin password.")
+            os._exit(0)  # Exit the program if the admin password is incorrect
+    else:
+        token = response.decode('utf-8')
+        print(f"Your token is: {token}")
+        return token
 
 def receive_messages():
     while True:
         try:
-            message, _ = client_Socket.recvfrom(1024)
+            message, _ = Client_Socket.recvfrom(1024)
             if message:
-                decoded_Message = message.decode('utf-8')
-                if decoded_Message == "BANNED":
-                    print("You have been banned. Leaving chat...")
-                    os._exit(0)  
+                decoded_message = message.decode('utf-8')
+                if decoded_message == "BANNED":
+                    print("You have been banned. Exiting the chat.")
+                    os._exit(0)  # Exit the program
                 else:
-                    print(decoded_Message)
+                    print(decoded_message)
         except ConnectionResetError:
-            print("Connection error when receiving messages from other clients.")
+            print("Connection error while receiving messages from other clients.")
 
-token = getToken()
-correctToken = False
+token = get_token()
+correct_token = False
 
-# Start a thread to continuously receive messages
-reception_thread = threading.Thread(target=receive_messages, daemon=True)
-reception_thread.start()
+# Start a thread to receive messages while the client waits for user input
+receive_thread = threading.Thread(target=receive_messages, daemon=True)
+receive_thread.start()
 
 while True:
-    while not correctToken:
-        # Wait for the user to enter the correct token
-        userToken = input("Enter the token to write: ")
-        if userToken == token:
-            correctToken = True
-            print("The token is correct, you can chat now.")
-
-    # Get user input and send it to the server
-    message = input()
+    while not correct_token:
+        if token == "CONNECTION_ADM":
+            correct_token = True
+        else:
+            user_token = input("Enter the token to write: ")
+            if user_token == token:
+                correct_token = True
+                print("Token is correct, you can now chat.")
+                
+    message = input("Write: \n")
     
     message_with_token = f"{token}: {message}"
-    client_Socket.sendto(message_with_token.encode('utf-8'), (conexion_adress, conexionPort))
+    Client_Socket.sendto(message_with_token.encode('utf-8'), (Server_Address, Server_Port))

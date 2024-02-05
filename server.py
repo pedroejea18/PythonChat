@@ -1,59 +1,58 @@
 import socket
 import uuid
 
-IP_Serv = '192.168.1.135' #insert your ipv4 address
-port = 9000
+Server_IP = '192.168.1.135'
+Port = 9000
 
-usersTokenTxt = "users_token.txt"
+User_Tokens_File = "users_token.txt"
+Admin_Password = "admin"  # Replace with the desired password for the admin
 
 def generate_token():
     return str(uuid.uuid4())
 
 def save_user_tokens(clients):
-    with open(usersTokenTxt, "w") as file:
-        for adress, client_info in clients.items():
-            file.write(f"{adress[0]}:{adress[1]}:{client_info['name']}:{client_info['token']}\n")
+    with open(User_Tokens_File, "w") as file:
+        for address, client_info in clients.items():
+            file.write(f"{address[0]}:{address[1]}:{client_info['name']}:{client_info['token']}\n")
 
-# Create a UDP socket
-server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-# Bind the socket to the specified IP and port
-server.bind((IP_Serv, port))
+server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+server_socket.bind((Server_IP, Port))
 
 clients = {}
-admin = False
 
 while True:
     try:
-        # Receive data and address from the client
-        message, adress = server.recvfrom(1024)
+        message, address = server_socket.recvfrom(1024)
         if not message:
             continue
     except ConnectionResetError:
-        print("Connection error. Ignoring the package.")
+        print("Connection error. Ignoring the packet.")
         continue
 
-    # Check if the client is not in the list of connected clients
-    if adress not in clients:
-        # Decode the received message, assumed to be the client's name
+    if address not in clients:
         name = message.decode('utf-8')
-        token = generate_token()
-
-        # Check if the client is an admin
         if name.lower() == "admin":
-            clients[adress] = {'name': name, 'token': token, 'admin': True}
+            # Request password from the admin
+            server_socket.sendto("ADMIN_PASSWORD".encode('utf-8'), address)
+            entered_password, _ = server_socket.recvfrom(1024)
+            if entered_password.decode('utf-8') == Admin_Password:
+                server_socket.sendto("PASSWORD CORRECT".encode('utf-8'), address)
+                token = generate_token()
+                clients[address] = {'name': name, 'token': token, 'admin': True}
+                print(f"New admin connected: {name} - {address[0]}:{address[1]} - Token: {token}")
+                server_socket.sendto(token.encode('utf-8'), address)
+                save_user_tokens(clients)
+            else:
+                print("Incorrect password for the admin.")
+                server_socket.sendto("INCORRECT PASSWORD".encode('utf-8'), address)
+                continue
         else:
-            clients[adress] = {'name': name, 'token': token}
-
-        print(f"New connection established: {name} - {adress[0]}:{adress[1]} - Token: {token}")
-        
-        # Send the generated token back to the client
-        server.sendto(token.encode('utf-8'), adress)
-        
-        # Save the user tokens to a file
-        save_user_tokens(clients)
-
+            token = generate_token()
+            clients[address] = {'name': name, 'token': token}
+            print(f"New connection established: {name} - {address[0]}:{address[1]} - Token: {token}")
+            server_socket.sendto(token.encode('utf-8'), address)
+            save_user_tokens(clients)
     else:
-        # Process messages from already connected clients
         message = message.decode('utf-8')
         parts = message.split(': ', 1)
 
@@ -63,41 +62,44 @@ while True:
 
             if client:
                 print(f"{client['name']} - {message}")
-                if client.get('admin', True):  
+
+                # If the client entered the name "admin", it will become an administrator
+                if client.get('admin', False):  # Check if the client is an administrator
                     if message.startswith("/ban"):
-                        # Process ban command from admin
                         parts_ban = message.split(' ')
                         if len(parts_ban) == 2:
                             token_ban = parts_ban[1]
 
-                            if token_ban in [cliente_info['token'] for cliente_info in clients.values()]:
-                                adress_ban = next(adress for adress, info in clients.items() if info['token'] == token_ban)
-                                del clients[adress_ban]
-                                print(f"Client with the token {token_ban} has been banned.")
+                            if token_ban in [client_info['token'] for client_info in clients.values()]:
+                                address_ban = next(addr for addr, info in clients.items() if info['token'] == token_ban)
+                                del clients[address_ban]
+                                print(f"Client with token {token_ban} has been banned.")
                                 save_user_tokens(clients)
-                                server.sendto("BANNED".encode('utf-8'), adress_ban) 
+                                server_socket.sendto("BANNED".encode('utf-8'), address_ban)  # Send ban message
                             else:
                                 print(f"Client with token {token_ban} not found.")
                         else:
                             print("Incorrect ban command format.")
+                    # If the "admin" doesn't write something starting with /ban, it will be considered as a normal message:
                     else:
-                        # Broadcast the message to all connected clients
-                        for client_adress, client_info in clients.items():
-                            if client_adress != adress:
+                        for client_address, client_info in clients.items():
+                            if client_address != address:
                                 try:
-                                    send_message = f"{client['name']} - {message}"
-                                    server.sendto(send_message.encode('utf-8'), client_adress)
+                                    message_to_send = f"{client['name']} - {message}"
+                                    server_socket.sendto(message_to_send.encode('utf-8'), client_address)
                                 except ConnectionResetError:
-                                    print(f"Connection error when sending message to {client_info['name']}.")
+                                    print(f"Connection error while sending message to {client_info['name']}.")
+                # If the client is not "admin":
+                # This sends a normal message
                 else:
-                    # Broadcast the message to all connected clients (non-admin)
-                    for client_adress, client_info in clients.items():
-                        if client_adress != adress:
+                    for client_address, client_info in clients.items():
+                        if client_address != address:
                             try:
-                                send_message = f"{client['name']} - {message}"
-                                server.sendto(send_message.encode('utf-8'), client_adress)
+                                message_to_send = f"{client['name']} - {message}"
+                                server_socket.sendto(message_to_send.encode('utf-8'), client_address)
                             except ConnectionResetError:
-                                print(f"Connection error when sending message to {client_info['name']}.")
+                                print(f"Connection error while sending message to {client_info['name']}.")
+
             else:
                 print("Invalid token.")
         else:
